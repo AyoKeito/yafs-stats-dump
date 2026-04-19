@@ -15,6 +15,7 @@ from .correlations import (
     tag_pairs_stats,
     top_bottom_posts,
 )
+from .insights import build_insights_section
 from .load import TAG_CATEGORIES, load_posts
 
 POST_URL = "https://e6ai.net/posts/{id}"
@@ -114,6 +115,7 @@ def render(tag: str, cache_path: Path, out_dir: Path) -> Path:
             _save_top_tag_bar(tag_stats, cat, charts_dir / f"top_tags_{cat}.png")
         cooc.to_csv(out_dir / "cooccurrence_general.csv")
 
+    insights_md = build_insights_section(posts_df, tags_df, tag_stats, artist_tag=tag)
     md = _build_markdown(
         tag=tag,
         posts_df=posts_df,
@@ -121,6 +123,7 @@ def render(tag: str, cache_path: Path, out_dir: Path) -> Path:
         pairs=pairs,
         top_posts=top_posts,
         bottom_posts=bottom_posts,
+        insights_md=insights_md,
     )
     report_path = out_dir / "report.md"
     report_path.write_text(md, encoding="utf-8")
@@ -142,6 +145,7 @@ def _build_markdown(
     pairs: pd.DataFrame,
     top_posts: pd.DataFrame,
     bottom_posts: pd.DataFrame,
+    insights_md: str = "",
 ) -> str:
     lines: list[str] = []
     lines.append(f"# e6ai engagement report — `{tag}`\n")
@@ -149,6 +153,9 @@ def _build_markdown(
     if posts_df.empty:
         lines.append("No posts found.\n")
         return "\n".join(lines)
+
+    if insights_md:
+        lines.append(insights_md)
 
     date_min = posts_df["created_at"].min()
     date_max = posts_df["created_at"].max()

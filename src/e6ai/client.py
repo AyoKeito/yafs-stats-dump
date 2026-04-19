@@ -62,7 +62,14 @@ class E6aiClient:
                 time.sleep(backoff)
                 backoff *= 2
                 continue
-            r.raise_for_status()
+            if r.is_error:
+                # Strip credentials before bubbling up so the URL never lands in logs/tracebacks
+                safe_params = {k: v for k, v in params.items()}
+                raise httpx.HTTPStatusError(
+                    f"{r.status_code} {r.reason_phrase} on GET {path} params={safe_params}",
+                    request=r.request,
+                    response=r,
+                )
             return r
         raise RuntimeError("unreachable")
 
@@ -73,6 +80,32 @@ class E6aiClient:
         data = self._get("/posts.json", params).json()
         posts = data.get("posts", data) if isinstance(data, dict) else data
         return posts or []
+
+    def top_uploaders(self, limit: int = 10, exclude_names: tuple[str, ...] = ()) -> list[dict]:
+        """Return user dicts sorted by post_upload_count desc.
+
+        Exclusion is case-insensitive and ignores underscores so 'ayo_keito' matches 'AyoKeito'.
+        """
+        def norm(s: str) -> str:
+            return s.lower().replace("_", "")
+
+        data = self._get(
+            "/users.json",
+            params={"limit": min(limit + len(exclude_names) + 5, 100), "search[order]": "post_upload_count"},
+        ).json()
+        users = data if isinstance(data, list) else data.get("users", [])
+        excluded = {norm(n) for n in exclude_names if n}
+        out = [u for u in users if norm(u.get("name", "")) not in excluded]
+        return out[:limit]
+
+    def fetch_uploader_posts(self, name: str, max_posts: int) -> list[dict]:
+        """Fetch up to max_posts most recent posts uploaded by `name`."""
+        out: list[dict] = []
+        for post in self.iter_posts_descending(f"user:{name}"):
+            out.append(post)
+            if len(out) >= max_posts:
+                break
+        return out
 
     def iter_posts_descending(self, tags: str) -> Iterator[dict]:
         """Walk from newest to oldest using page=b<min_id> cursor."""
